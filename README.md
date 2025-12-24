@@ -2,10 +2,10 @@
 Reproducible workflow for processing 10x Genomics v2 zebrafish brain scRNA-seq from NCBI SRA and GEO, running Cell Ranger count/aggr on HPC, and downstream analysis in Python (Scanpy) on macOS.
 
 ## Data source and scope
-- BioProject: **PRJNA664124** (linked from GEO series) :contentReference[oaicite:1]{index=1}  
-- GEO Series: **GSE158142** (“Emergence of neuronal diversity during vertebrate brain development”) :contentReference[oaicite:2]{index=2}  
-- Example GEO Sample: **GSM4793216** = *zBr5dpf4_S1* (5 dpf brain) :contentReference[oaicite:3]{index=3}  
-- Paper: Raj et al., 2020 (Neuron) :contentReference[oaicite:4]{index=4}  
+- BioProject: **PRJNA664124**   
+- GEO Series: **GSE158142** (“Emergence of neuronal diversity during vertebrate brain development”)  
+- Example GEO Sample: **GSM4793216** = *zBr5dpf4_S1* (5 dpf brain)  
+- Paper: Raj et al., 2020 (Neuron)}  
 
 ### Subset used in this repo
 This repo focuses on **5 dpf** and **8 dpf** samples only (not all timepoints in the series). The GEO series includes multiple 5 dpf and 8 dpf samples (e.g., GSM4793213–GSM4793221 for 5 dpf; GSM4793222–GSM4793234 for 8 dpf). :contentReference[oaicite:5]{index=5}
@@ -25,7 +25,7 @@ This repo focuses on **5 dpf** and **8 dpf** samples only (not all timepoints in
 6. Transfer aggregated output to Mac
 7. Scanpy QC → normalization → HVGs → PCA/UMAP → clustering → markers/annotation
 
-> Note: SRA Toolkit guidance and metadata download approaches are documented by NCBI; `fasterq-dump` is the recommended successor to `fastq-dump`. :contentReference[oaicite:6]{index=6}
+> Note: SRA Toolkit guidance and metadata download approaches are documented by NCBI; `fasterq-dump` is the recommended successor to `fastq-dump`.
 
 ---
 
