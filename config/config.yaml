@@ -1,0 +1,45 @@
+# ---------- Project ----------
+project: "zebrafish_brain_dev"
+samplesheet: "config/samplesheet.tsv"
+
+# ---------- Paths (do not commit these) ----------
+workdir: "work"
+fastq_dir: "work/fastq"
+cellranger_out: "work/cellranger"
+reference_dir: "work/reference"            # will contain cellranger_ref/
+results_dir: "results"
+
+# ---------- SRA toolkit ----------
+# If prefetch writes to ~/.ncbi/public/sra by default, this pipeline uses explicit paths in workdir.
+sra_threads: 8
+
+# ---------- Cell Ranger ----------
+# Cell Ranger is typically installed outside conda. Provide absolute path or ensure it's in $PATH.
+cellranger_bin: "cellranger"
+cellranger_localcores: 16
+cellranger_localmem: 64
+
+# ---------- Reference (GRCz10) ----------
+# Provide local paths (recommended) OR download externally and place them here.
+# The pipeline will run cellranger mkref using these.
+reference:
+  genome_name: "Danio_rerio_GRCz10"
+  fasta: "/PATH/TO/GRCz10.fa"
+  gtf: "/PATH/TO/GRCz10.gtf"
+
+# ---------- Cell Ranger aggr ----------
+aggr_normalize: "mapped"   # mapped | none
+
+# ---------- Naming convention for renamed FASTQs ----------
+rename:
+  lane: "L001"
+  sample_suffix: "S1"
+
+# ---------- Scanpy ----------
+scanpy:
+  min_genes: 200
+  min_cells: 3
+  max_pct_mt: 10
+  n_top_genes: 2000
+  leiden_resolution: 1.0
+
