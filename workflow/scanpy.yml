@@ -1,0 +1,17 @@
+name: scanpy
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - scanpy
+  - anndata
+  - pandas
+  - numpy
+  - scipy
+  - matplotlib
+  - seaborn
+  - scikit-learn
+  - leidenalg
+  - igraph
+  - pytables
+
