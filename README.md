@@ -1,16 +1,19 @@
 # Zebrafish brain scRNA-seq (SRA → Cell Ranger → Scanpy)
 Reproducible workflow for processing 10x Genomics v2 zebrafish brain scRNA-seq from NCBI SRA and GEO, running Cell Ranger count/aggr on HPC, and downstream analysis in Python (Scanpy) on macOS.
+
 ---
-Minimum requirements to run the Snakefile workflow 
-# one-time
+
+# Minimum requirements to run the Snakefile workflow 
+  *one-time*
 conda install -n base -c conda-forge -c bioconda snakemake
 
-# run
+  *run*
 snakemake -j 8 --use-conda
 
 # 
 There is an HPC submission script that can be adapted to your available resources in the scripts directory
 This is called job_submit.sh script 
+
 ---
 ## Data source and scope
 - BioProject: **PRJNA664124**   
