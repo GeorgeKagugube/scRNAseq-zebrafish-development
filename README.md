@@ -61,7 +61,6 @@ This repo focuses on **5 dpf** and **8 dpf** samples only (not all timepoints in
 
 ## Repo structure
 ```text
-.
 ├── config/
 │   ├── project.yml
 │   ├── srr_alt
@@ -84,7 +83,7 @@ This repo focuses on **5 dpf** and **8 dpf** samples only (not all timepoints in
     ├── figures/
     └── tables/
 
-
+```
 ---
 
 # Further readings
