@@ -1,0 +1,282 @@
+import os
+import pandas as pd
+from pathlib import Path
+
+configfile: "config/config.yaml"
+
+SAMPLESHEET = config["samplesheet"]
+S = pd.read_csv(SAMPLESHEET, sep="\t", dtype=str)
+
+# Required columns
+required_cols = {"sample_id", "srr_accession"}
+missing = required_cols - set(S.columns)
+if missing:
+    raise ValueError(f"samplesheet is missing required columns: {missing}")
+
+S["sample_id"] = S["sample_id"].astype(str)
+S["srr_accession"] = S["srr_accession"].astype(str)
+
+SAMPLE_IDS = S["sample_id"].tolist()
+SRRS = dict(zip(S["sample_id"], S["srr_accession"]))
+
+WORKDIR = config.get("workdir", "work")
+FASTQ_DIR = config.get("fastq_dir", f"{WORKDIR}/fastq")
+CR_OUT = config.get("cellranger_out", f"{WORKDIR}/cellranger")
+REF_DIR = config.get("reference_dir", f"{WORKDIR}/reference")
+RESULTS = config.get("results_dir", "results")
+
+LANE = config["rename"]["lane"]
+S_SUFFIX = config["rename"]["sample_suffix"]
+
+CELLRANGER = config["cellranger_bin"]
+CORES = int(config["cellranger_localcores"])
+MEM = int(config["cellranger_localmem"])
+
+REF_FASTA = config["reference"]["fasta"]
+REF_GTF = config["reference"]["gtf"]
+REF_NAME = config["reference"]["genome_name"]
+CR_REF = f"{REF_DIR}/cellranger_ref"
+
+AGGR_NORM = config.get("aggr_normalize", "mapped")
+
+rule all:
+    input:
+        # Cell Ranger aggr outputs (key files)
+        f"{CR_OUT}/aggr_all/outs/filtered_feature_bc_matrix.h5",
+        f"{CR_OUT}/aggr_all/outs/metrics_summary.csv",
+        # Scanpy outputs
+        f"{RESULTS}/processed/adata_final.h5ad",
+        f"{RESULTS}/figures/qc_violin.png",
+        f"{RESULTS}/figures/umap_timepoint.png",
+        f"{RESULTS}/figures/marker_dotplot.png"
+
+# -------------------------
+# Reference build (Cell Ranger mkref)
+# -------------------------
+rule cellranger_mkref:
+    input:
+        fasta=REF_FASTA,
+        gtf=REF_GTF
+    output:
+        ref_dir=directory(CR_REF)
+    params:
+        genome=REF_NAME
+    threads: 2
+    shell:
+        r"""
+        mkdir -p {REF_DIR}
+        # cellranger mkref will create the output directory
+        {CELLRANGER} mkref \
+          --genome={params.genome} \
+          --fasta={input.fasta} \
+          --genes={input.gtf} \
+          --nthreads={threads} \
+          --output-dir={output.ref_dir}
+        """
+
+# -------------------------
+# Download SRA (.sra)
+# -------------------------
+rule prefetch_sra:
+    output:
+        sra=f"{WORKDIR}/sra/{{sample}}/{{sample}}.sra"
+    params:
+        srr=lambda wc: SRRS[wc.sample]
+    threads: config.get("sra_threads", 8)
+    conda:
+        "envs/sra.yml"
+    shell:
+        r"""
+        mkdir -p $(dirname {output.sra})
+        prefetch {params.srr} --output-file {output.sra}
+        """
+
+# -------------------------
+# Convert to FASTQ (split-files) + gzip
+# Produces SRR_1.fastq.gz, SRR_2.fastq.gz, and sometimes SRR_3.fastq.gz
+# -------------------------
+rule fasterq_dump:
+    input:
+        sra=f"{WORKDIR}/sra/{{sample}}/{{sample}}.sra"
+    output:
+        r1=temp(f"{FASTQ_DIR}/raw/{{sample}}/{{sample}}_1.fastq.gz"),
+        r2=temp(f"{FASTQ_DIR}/raw/{{sample}}/{{sample}}_2.fastq.gz")
+    params:
+        srr=lambda wc: SRRS[wc.sample]
+    threads: config.get("sra_threads", 8)
+    conda:
+        "envs/sra.yml"
+    shell:
+        r"""
+        mkdir -p {FASTQ_DIR}/raw/{wildcards.sample}
+        fasterq-dump --split-files --threads {threads} -O {FASTQ_DIR}/raw/{wildcards.sample} {input.sra}
+        # gzip with pigz
+        pigz -p {threads} -f {FASTQ_DIR}/raw/{wildcards.sample}/{params.srr}_*.fastq
+        # Standardize names to {{sample}}_* for downstream steps
+        # Link SRR fastqs to sample fastqs for consistency
+        ln -sf {FASTQ_DIR}/raw/{wildcards.sample}/{params.srr}_1.fastq.gz {output.r1}
+        ln -sf {FASTQ_DIR}/raw/{wildcards.sample}/{params.srr}_2.fastq.gz {output.r2}
+        """
+
+# -------------------------
+# Rename FASTQs to Cell Ranger convention in a shared directory
+# Cell Ranger expects: <sample>_<S>_<L>_R1_001.fastq.gz, etc.
+# We'll create:
+#   work/fastq/cellranger/<sample>_S1_L001_R1_001.fastq.gz
+#   work/fastq/cellranger/<sample>_S1_L001_R2_001.fastq.gz
+#   work/fastq/cellranger/<sample>_S1_L001_I1_001.fastq.gz (if SRR_3 exists)
+# -------------------------
+rule rename_for_cellranger:
+    input:
+        r1=f"{FASTQ_DIR}/raw/{{sample}}/{{sample}}_1.fastq.gz",
+        r2=f"{FASTQ_DIR}/raw/{{sample}}/{{sample}}_2.fastq.gz"
+    output:
+        r1=f"{FASTQ_DIR}/cellranger/{{sample}}_{S_SUFFIX}_{LANE}_R1_001.fastq.gz",
+        r2=f"{FASTQ_DIR}/cellranger/{{sample}}_{S_SUFFIX}_{LANE}_R2_001.fastq.gz",
+        # Optional I1: handled as "touch if absent"
+        i1=f"{FASTQ_DIR}/cellranger/{{sample}}_{S_SUFFIX}_{LANE}_I1_001.fastq.gz"
+    params:
+        srr=lambda wc: SRRS[wc.sample]
+    threads: 1
+    shell:
+        r"""
+        mkdir -p {FASTQ_DIR}/cellranger
+        ln -sf {input.r1} {output.r1}
+        ln -sf {input.r2} {output.r2}
+
+        # If SRR_3 exists, link it; otherwise create an empty placeholder so rule graph is consistent.
+        I1_SRC="{FASTQ_DIR}/raw/{wildcards.sample}/{params.srr}_3.fastq.gz"
+        if [ -f "$I1_SRC" ]; then
+          ln -sf "$I1_SRC" {output.i1}
+        else
+          # Some runs may not have index read. Placeholder avoids rule failures; Cell Ranger will ignore non-matching files.
+          : > {output.i1}
+        fi
+        """
+
+# -------------------------
+# Cell Ranger count per sample
+# -------------------------
+rule cellranger_count:
+    input:
+        ref=rules.cellranger_mkref.output.ref_dir,
+        r1=f"{FASTQ_DIR}/cellranger/{{sample}}_{S_SUFFIX}_{LANE}_R1_001.fastq.gz",
+        r2=f"{FASTQ_DIR}/cellranger/{{sample}}_{S_SUFFIX}_{LANE}_R2_001.fastq.gz"
+    output:
+        filtered_h5=f"{CR_OUT}/count/{{sample}}/outs/filtered_feature_bc_matrix.h5",
+        metrics=f"{CR_OUT}/count/{{sample}}/outs/metrics_summary.csv",
+        molecule_h5=f"{CR_OUT}/count/{{sample}}/outs/molecule_info.h5"
+    params:
+        id=lambda wc: wc.sample,
+        fastqs=f"{FASTQ_DIR}/cellranger",
+        sample=lambda wc: wc.sample
+    threads: CORES
+    shell:
+        r"""
+        mkdir -p {CR_OUT}/count
+        # Run in a temp dir to keep Cell Ranger happy, then move into results location
+        TMPDIR="{WORKDIR}/tmp_cellranger/{wildcards.sample}"
+        rm -rf "$TMPDIR"
+        mkdir -p "$TMPDIR"
+        cd "$TMPDIR"
+
+        {CELLRANGER} count \
+          --id={params.id} \
+          --transcriptome={input.ref} \
+          --fastqs={params.fastqs} \
+          --sample={params.sample} \
+          --localcores={threads} \
+          --localmem={MEM}
+
+        # Move to canonical location
+        rm -rf {CR_OUT}/count/{wildcards.sample}
+        mv {params.id} {CR_OUT}/count/{wildcards.sample}
+        """
+
+# -------------------------
+# Build aggr CSV for Cell Ranger aggr
+# -------------------------
+rule make_aggr_csv:
+    input:
+        expand(f"{CR_OUT}/count/{{sample}}/outs/molecule_info.h5", sample=SAMPLE_IDS)
+    output:
+        csv=f"{config['config.yaml'] if False else 'config/cellranger_aggr.csv'}"
+    run:
+        # Create aggr CSV in Cell Ranger format:
+        # sample_id,molecule_h5
+        out = Path(output.csv)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("w") as f:
+            f.write("sample_id,molecule_h5\n")
+            for sample in SAMPLE_IDS:
+                h5 = f"{CR_OUT}/count/{sample}/outs/molecule_info.h5"
+                f.write(f"{sample},{h5}\n")
+
+# -------------------------
+# Cell Ranger aggr
+# -------------------------
+rule cellranger_aggr:
+    input:
+        ref=rules.cellranger_mkref.output.ref_dir,
+        csv=rules.make_aggr_csv.output.csv
+    output:
+        filtered_h5=f"{CR_OUT}/aggr_all/outs/filtered_feature_bc_matrix.h5",
+        metrics=f"{CR_OUT}/aggr_all/outs/metrics_summary.csv"
+    threads: CORES
+    shell:
+        r"""
+        mkdir -p {CR_OUT}
+        TMPDIR="{WORKDIR}/tmp_cellranger/aggr_all"
+        rm -rf "$TMPDIR"
+        mkdir -p "$TMPDIR"
+        cd "$TMPDIR"
+
+        {CELLRANGER} aggr \
+          --id=aggr_all \
+          --csv={input.csv} \
+          --normalize={AGGR_NORM} \
+          --localcores={threads} \
+          --localmem={MEM}
+
+        rm -rf {CR_OUT}/aggr_all
+        mv aggr_all {CR_OUT}/aggr_all
+        """
+
+# -------------------------
+# Scanpy downstream pipeline
+# -------------------------
+rule scanpy_pipeline:
+    input:
+        filtered_h5=f"{CR_OUT}/aggr_all/outs/filtered_feature_bc_matrix.h5",
+        samplesheet=SAMPLESHEET
+    output:
+        adata=f"{RESULTS}/processed/adata_final.h5ad",
+        qc_fig=f"{RESULTS}/figures/qc_violin.png",
+        umap_fig=f"{RESULTS}/figures/umap_timepoint.png",
+        marker_fig=f"{RESULTS}/figures/marker_dotplot.png"
+    params:
+        outdir=RESULTS,
+        min_genes=int(config["scanpy"]["min_genes"]),
+        min_cells=int(config["scanpy"]["min_cells"]),
+        max_pct_mt=float(config["scanpy"]["max_pct_mt"]),
+        n_top_genes=int(config["scanpy"]["n_top_genes"]),
+        leiden_resolution=float(config["scanpy"]["leiden_resolution"])
+    conda:
+        "envs/scanpy.yml"
+    shell:
+        r"""
+        mkdir -p {RESULTS}/processed {RESULTS}/figures {RESULTS}/tables
+        python scripts/scanpy_pipeline.py \
+          --filtered_h5 {input.filtered_h5} \
+          --samplesheet {input.samplesheet} \
+          --out_adata {output.adata} \
+          --qc_fig {output.qc_fig} \
+          --umap_fig {output.umap_fig} \
+          --marker_fig {output.marker_fig} \
+          --min_genes {params.min_genes} \
+          --min_cells {params.min_cells} \
+          --max_pct_mt {params.max_pct_mt} \
+          --n_top_genes {params.n_top_genes} \
+          --leiden_resolution {params.leiden_resolution}
+        """
+
