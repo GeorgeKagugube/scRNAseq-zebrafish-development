@@ -4,10 +4,10 @@ Reproducible workflow for processing 10x Genomics v2 zebrafish brain scRNA-seq f
 ---
 
 # Minimum requirements to run the Snakefile workflow 
-  *one-time*
+###  *one-time*
 conda install -n base -c conda-forge -c bioconda snakemake
 
-  *run*
+###  *run*
 snakemake -j 8 --use-conda
 
 # 
