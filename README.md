@@ -46,7 +46,7 @@ This repo focuses on **5 dpf** and **8 dpf** samples only (not all timepoints in
 ## Example Figure output 
 
 ### Workflow diagram
-![Pipeline diagram](results/figures/pipeline_diagram.png)
+![Pipeline diagram](results/figures/scRNA-Seq Analysis.png)
 
 ### QC summary
 ![QC violin plots](results/figures/qc_violin.png)
