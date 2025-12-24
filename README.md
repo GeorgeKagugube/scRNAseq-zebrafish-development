@@ -43,8 +43,7 @@ This repo focuses on **5 dpf** and **8 dpf** samples only (not all timepoints in
 
 ---
 
-## Figures (placeholders)
-Add these images to `results/figures/` (or update paths below):
+## Example Figure output 
 
 ### Workflow diagram
 ![Pipeline diagram](results/figures/pipeline_diagram.png)
@@ -84,4 +83,10 @@ Add these images to `results/figures/` (or update paths below):
 └── results/
     ├── figures/
     └── tables/
+
+---
+# Further readings
+
+https://github.com/ncbi/sra-tools/wiki/HowTo:-fasterq-dump
+https://github.com/ncbi/sra-tools/wiki/08.-prefetch-and-fasterq-dump 
 
